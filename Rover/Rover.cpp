@@ -28,6 +28,8 @@
 
    Please contribute your ideas! See https://ardupilot.org/dev for details
 */
+#include <Python.h>
+#include <iostream>
 
 #include "Rover.h"
 
@@ -177,17 +179,59 @@ bool Rover::set_target_location(const Location& target_loc)
 // set target velocity (for use by scripting)
 bool Rover::set_target_velocity_NED(const Vector3f& vel_ned)
 {
+
+    double vectorVal1 = vel_ned.x;
+    double vectorVal2 = vel_ned.y
     // exit if vehicle is not in Guided mode or Auto-Guided mode
     if (!control_mode->in_guided_mode()) {
         return false;
     }
 
-    // convert vector length into speed
-    const float target_speed_m = safe_sqrt(sq(vel_ned.x) + sq(vel_ned.y));
 
-    // convert vector direction to target yaw
-    const float target_yaw_cd = degrees(atan2f(vel_ned.y, vel_ned.x)) * 100.0f;
+    double target_speed_m, target_yaw_cd;
 
+    Py_Initialize();
+    std::cout << "Python initialized." << std::endl;
+
+    // Import the Cython module
+    PyObject* pModule = PyImport_ImportModule("my_rover_code_wrapper");
+
+    if (pModule != NULL) {
+        std::cout << "Module imported." << std::endl;
+
+      
+        PyObject* pFunc = PyObject_GetAttrString(pModule, "call_generate_rover_code");
+
+        if (PyCallable_Check(pFunc)) {
+            std::cout << "Function is callable." << std::endl;
+
+            PyObject* pArgs = PyTuple_Pack(2, PyFloat_FromDouble(vectorVal1), PyFloat_FromDouble(vectorVal2));
+            PyObject* pValue = PyObject_CallObject(pFunc, pArgs);
+
+            if (pValue != NULL) {
+                target_speed_m = PyFloat_AsDouble(PyTuple_GetItem(pValue, 0));
+                target_yaw_cd = PyFloat_AsDouble(PyTuple_GetItem(pValue, 1));
+
+                std::cout << "target_speed: " << target_speed_m << std::endl;
+                std::cout << "target_yaw: " << target_yaw_cd << std::endl;
+
+                Py_DECREF(pValue);
+            } else {
+                PyErr_Print();
+            }
+
+            Py_DECREF(pArgs);
+        } else {
+            PyErr_Print();
+        }
+
+        Py_DECREF(pFunc);
+        Py_DECREF(pModule);
+    } else {
+        PyErr_Print();
+    }
+
+    Py_Finalize();
     // send target heading and speed
     mode_guided.set_desired_heading_and_speed(target_yaw_cd, target_speed_m);
 
